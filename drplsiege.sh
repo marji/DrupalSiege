@@ -29,21 +29,50 @@ else
   SITE="${!#}"
 fi
 
-## figure out the base site URL to contruct the URL for the login page
-## remove trailing slash
-BASESITE=$(echo ${SITE%/})
-while true
-do
-  SUB=$(echo ${BASESITE##*/})
-  HTTPCODE=$(curl -s --output /dev/null -w "%{http_code}\n" ${BASESITE}/install.php)
-  if [[ "${HTTPCODE}" == 200 ]] 
-  then
-    break
-  fi
-  BASESITE=$(echo ${BASESITE} | sed "s/\/${SUB}//")
-done
+LOGINURL=""
 
-LOGINURL="${BASESITE}/user"
+if [ "$SUBDIR_SITE" != "0" ]; then
+  echo "Determining the BASE site URL by looking for install.php..."
+  ## figure out the base site URL to contruct the URL for the login page
+  ## remove trailing slash
+  BASESITE=$(echo ${SITE%/})
+  PRE_BASESITE=$BASESITE
+  while true
+  do
+    SUB=$(echo ${BASESITE##*/})
+    HTTPCODE=$(curl -s --output /dev/null -w "%{http_code}\n" ${BASESITE}/install.php)
+    if [[ "${HTTPCODE}" == 200 ]]
+    then
+      LOGINURL="${BASESITE}/user"
+      break
+    fi
+    BASESITE=$(echo ${BASESITE} | sed "s/\/${SUB}//")
+    if [ "$BASESITE" == "$PRE_BASESITE" ]; then
+      # We didn't find a base site using the intall.php method.
+      echo "   ... not found."
+      break
+    fi
+    PRE_BASESITE=$BASESITE
+  done
+fi
+
+if [ -z "$LOGINURL" ]; then
+  # We didn't find a base site using the intall.php method.
+  # let's assume the site runs on the FQDN (not in a subdirectory):
+  #
+  echo "Assuming the BASE site URL = FQDN"
+  # extract the protocol
+  proto="$(echo $SITE | grep :// | sed -e's,^\(.*://\).*,\1,g')"
+  # remove the protocol
+  url="$(echo ${SITE/$proto/})"
+  # remove everything from first slash (if any)
+  fqdn=${url%%/*}
+  # So the login url is:
+  LOGINURL="${proto}${fqdn}/user"
+fi
+echo -n "Determined login URL: "
+echo $LOGINURL
+
 POSTVARS="name=${DUSER}&pass=${DPASS}&form_id=user_login&op=Log+in"
 
 LOGFILE=$(siege -C | grep "log file" | awk -F: '{print $2}' | sed 's# ##g')
